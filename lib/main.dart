@@ -47,7 +47,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _updateSavedCount();
   }
 
-  // Прямой сетевой запрос к Civitai без CORS прокси
   Future<void> _loadImages() async {
     try {
       final response = await http.get(Uri.parse(
@@ -57,7 +56,6 @@ class _HomeScreenState extends State<HomeScreen> {
         final data = jsonDecode(response.body);
         final List<dynamic> rawImages = data['items'] ?? [];
         
-        // Оставляем только картинки, где есть промпты
         setState(() {
           _images = rawImages.where((img) => img['meta'] != null && img['meta']['prompt'] != null).toList();
           _isLoading = false;
@@ -73,13 +71,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Получение пути к файлу датасета на устройстве
   Future<File> _getDatasetFile() async {
     final directory = await getApplicationDocumentsDirectory();
     return File('${directory.path}/sdxl_dataset.json');
   }
 
-  // Обновление счетчика на экране
   Future<void> _updateSavedCount() async {
     try {
       final file = await _getDatasetFile();
@@ -93,7 +89,6 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {}
   }
 
-  // Сохранение элемента датасета
   Future<void> _saveEntry(String input, String output) async {
     final file = await _getDatasetFile();
     List<dynamic> dataset = [];
@@ -120,7 +115,6 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  // Экспорт готового JSON-файла через стандартное меню смартфона ("Поделиться")
   Future<void> _exportDataset() async {
     final file = await _getDatasetFile();
     if (await file.exists()) {
@@ -191,7 +185,6 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.all(16.0),
           child: Column(
             children: [
-              // Картинка
               ClipRRect(
                 borderRadius: BorderRadius.circular(12),
                 child: AspectRatio(
@@ -205,8 +198,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Оригинальный промпт
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
@@ -224,8 +215,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Ввод краткой идеи
               TextField(
                 controller: _inputController,
                 decoration: InputDecoration(
@@ -236,8 +225,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Кнопки управления
               Row(
                 children: [
                   Expanded(
@@ -268,7 +255,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           );
                         }
                       },
-                      child: const Text('Сохранить', style: TextStyle(color: Colors.white)),
+                      child: const Text('Сохранить', style: const TextStyle(color: Colors.white)),
                     ),
                   ),
                 ],
