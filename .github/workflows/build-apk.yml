@@ -1,0 +1,43 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main  # Сборка будет запускаться при коммитах в ветку main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Скачиваем код из репозитория
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Устанавливаем Java (нужна для сборки Android)
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      # 3. Устанавливаем Flutter
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      # 4. Получаем зависимости
+      - name: Install dependencies
+        run: flutter pub get
+
+      # 5. Собираем APK
+      - name: Build APK
+        run: flutter build apk --release
+
+      # 6. Загружаем собранный APK в артефакты сборки GitHub
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdxl-collector-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
