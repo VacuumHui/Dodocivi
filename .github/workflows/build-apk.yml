@@ -10,42 +10,37 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Скачивание кода репозитория
+      # 1. Скачиваем код из репозитория
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Настройка Java 17 (необходима для стабильной работы Android Gradle)
+      # 2. Устанавливаем Java (необходима для сборки Android)
       - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      # 3. Настройка стабильной версии Flutter
+      # 3. Устанавливаем стабильную версию Flutter
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
 
-      # 4. Создание структуры Android-проекта с нуля (устраняет любые конфликты версий)
-      - name: Create Android project scaffolding
-        run: |
-          flutter create . --project-name=sdxl_collector --platforms=android --force
+      # 4. Восстанавливаем системные файлы Android (без конфликтующих флагов)
+      - name: Recreate Android platform files
+        run: flutter create .
 
-      # 5. Очистка кэша Flutter
-      - name: Clean Flutter
-        run: flutter clean
-
-      # 6. Получение необходимых библиотек (http, path_provider, share_plus)
+      # 5. Получаем библиотеки (http, path_provider, share_plus)
       - name: Install dependencies
         run: flutter pub get
 
-      # 7. Непосредственно сборка APK (в режиме release)
+      # 6. Собираем готовый APK-файл в режиме release
       - name: Build APK
         run: flutter build apk --release
 
-      # 8. Загрузка готового APK файла в артефакты GitHub
-      - name: Upload APK Artifact
+      # 7. Загружаем собранный APK в артефакты сборки GitHub
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: sdxl-collector-apk
