@@ -47,7 +47,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _updateSavedCount();
   }
 
-  // Загрузка картинок с Civitai напрямую (на нативных устройствах CORS нет)
   Future<void> _loadImages() async {
     try {
       final response = await http.get(Uri.parse(
