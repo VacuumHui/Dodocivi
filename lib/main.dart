@@ -189,7 +189,6 @@ class _HomeScreenState extends State<HomeScreen> {
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
-          随, // Контейнер для адаптации под разный контент
           child: Column(
             children: [
               // Картинка
