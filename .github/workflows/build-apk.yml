@@ -3,7 +3,7 @@ name: Build Android APK
 on:
   push:
     branches:
-      - main  # Сборка будет запускаться при коммитах в ветку main
+      - main  # Сборка запускается при коммитах в ветку main
 
 jobs:
   build:
@@ -27,15 +27,19 @@ jobs:
         with:
           channel: 'stable'
 
-      # 4. Получаем зависимости
+      # 4. Автоматически генерируем недостающие файлы Android проекта
+      - name: Auto-create android platform files
+        run: flutter create . --platforms=android
+
+      # 5. Получаем зависимости (пакеты http, path_provider, share_plus)
       - name: Install dependencies
         run: flutter pub get
 
-      # 5. Собираем APK
+      # 6. Собираем готовый APK-файл
       - name: Build APK
         run: flutter build apk --release
 
-      # 6. Загружаем собранный APK в артефакты сборки GitHub
+      # 7. Загружаем собранный APK в артефакты сборки GitHub
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
