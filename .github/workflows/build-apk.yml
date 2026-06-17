@@ -10,37 +10,42 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Скачиваем код из репозитория
+      # 1. Скачиваем код из вашего репозитория
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Устанавливаем Java (необходима для сборки Android)
+      # 2. Устанавливаем JDK 17
       - name: Set up JDK 17
         uses: actions/setup-java@v3
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      # 3. Устанавливаем стабильную версию Flutter
+      # 3. Устанавливаем стабильный Flutter
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
 
-      # 4. Восстанавливаем системные файлы Android (без конфликтующих флагов)
+      # 4. Восстанавливаем структуру Android-проекта
       - name: Recreate Android platform files
         run: flutter create .
 
-      # 5. Получаем библиотеки (http, path_provider, share_plus)
+      # 5. ПРИНУДИТЕЛЬНО ПОВЫШАЕМSdkVersion ДО 21 (Это уберет ошибку компиляции share_plus!)
+      - name: Force raise Android minSdkVersion to 21
+        run: |
+          echo "flutter.minSdkVersion=21" >> android/local.properties
+
+      # 6. Получаем библиотеки
       - name: Install dependencies
         run: flutter pub get
 
-      # 6. Собираем готовый APK-файл в режиме release
+      # 7. Собираем готовый APK-файл
       - name: Build APK
         run: flutter build apk --release
 
-      # 7. Загружаем собранный APK в артефакты сборки GitHub
-      - name: Upload APK
+      # 8. Загружаем собранный APK в артефакты сборки GitHub
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sdxl-collector-apk
