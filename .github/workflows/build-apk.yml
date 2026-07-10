@@ -12,303 +12,309 @@ permissions:
   contents: read
 
 concurrency:
-  group: build-android-${{ github.ref }}
+  group: android-apk-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-apk:
     name: Build release APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
 
     steps:
+      # ----------------------------------------------------------
+      # 1. Получение файлов репозитория
+      # ----------------------------------------------------------
+
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # ----------------------------------------------------------
+      # 2. Java
+      # ----------------------------------------------------------
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
 
-      - name: Set up Flutter stable
+      # ----------------------------------------------------------
+      # 3. Android SDK
+      #
+      # Этот action устанавливает Android command-line tools
+      # и добавляет sdkmanager в PATH.
+      # ----------------------------------------------------------
+
+      - name: Set up Android SDK tools
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK platforms
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          echo "ANDROID_HOME=${ANDROID_HOME:-not-set}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-not-set}"
+
+          sdkmanager --version
+
+          yes | sdkmanager --licenses >/dev/null || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "platforms;android-36" \
+            "build-tools;35.0.0"
+
+      # ----------------------------------------------------------
+      # 4. Flutter
+      # ----------------------------------------------------------
+
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
+          flutter-version: "3.44.2"
           channel: stable
           cache: true
 
-      - name: Show tool versions
-        run: |
-          set -euxo pipefail
-          flutter --version
-          java -version
-
-      - name: Create Android project when missing
+      - name: Show installed versions
         shell: bash
         run: |
           set -euxo pipefail
 
-          if [[ ! -d android ]]; then
-            BACKUP_DIR="$(mktemp -d)"
+          flutter --version
+          dart --version
+          java -version
+          sdkmanager --version
 
-            cp -a lib "$BACKUP_DIR/lib"
-            cp pubspec.yaml "$BACKUP_DIR/pubspec.yaml"
+          flutter doctor -v || true
 
-            if [[ -d test ]]; then
-              cp -a test "$BACKUP_DIR/test"
-            fi
+      # ----------------------------------------------------------
+      # 5. Пересоздание Android-проекта
+      #
+      # Android-каталог всегда генерируется заново через текущую
+      # версию Flutter. Это удаляет старые compileSdk 33,
+      # устаревший Gradle и несовместимые Android-файлы.
+      #
+      # Исходные lib, test и pubspec сохраняются.
+      # ----------------------------------------------------------
 
-            if [[ -f analysis_options.yaml ]]; then
-              cp analysis_options.yaml \
-                "$BACKUP_DIR/analysis_options.yaml"
-            fi
+      - name: Recreate Android project
+        shell: bash
+        run: |
+          set -euxo pipefail
 
-            flutter create \
-              --platforms=android \
-              --org=com.vacuumhui \
-              --project-name=sdxl_collector \
-              --no-pub \
-              .
-
-            rm -rf lib test
-
-            cp -a "$BACKUP_DIR/lib" lib
-            cp "$BACKUP_DIR/pubspec.yaml" pubspec.yaml
-
-            if [[ -d "$BACKUP_DIR/test" ]]; then
-              cp -a "$BACKUP_DIR/test" test
-            fi
-
-            if [[ -f "$BACKUP_DIR/analysis_options.yaml" ]]; then
-              cp "$BACKUP_DIR/analysis_options.yaml" \
-                analysis_options.yaml
-            fi
+          if [[ ! -d lib ]]; then
+            echo "ERROR: directory lib was not found"
+            exit 1
           fi
 
-      - name: Install Android SDK 35
-        shell: bash
-        run: |
-          set -euxo pipefail
+          if [[ ! -f lib/main.dart ]]; then
+            echo "ERROR: lib/main.dart was not found"
+            exit 1
+          fi
 
-          SDKMANAGER="$(command -v sdkmanager)"
+          if [[ ! -f pubspec.yaml ]]; then
+            echo "ERROR: pubspec.yaml was not found"
+            exit 1
+          fi
 
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          BACKUP_DIR="$(mktemp -d)"
 
-          "$SDKMANAGER" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+          cp -a lib "$BACKUP_DIR/lib"
+          cp pubspec.yaml "$BACKUP_DIR/pubspec.yaml"
+
+          if [[ -f pubspec.lock ]]; then
+            cp pubspec.lock "$BACKUP_DIR/pubspec.lock"
+          fi
+
+          if [[ -d test ]]; then
+            cp -a test "$BACKUP_DIR/test"
+          fi
+
+          if [[ -f analysis_options.yaml ]]; then
+            cp analysis_options.yaml \
+              "$BACKUP_DIR/analysis_options.yaml"
+          fi
+
+          rm -rf android
+
+          flutter create \
+            --platforms=android \
+            --org=com.vacuumhui \
+            --project-name=sdxl_collector \
+            --no-pub \
+            .
+
+          rm -rf lib
+          rm -rf test
+
+          cp -a "$BACKUP_DIR/lib" ./lib
+          cp "$BACKUP_DIR/pubspec.yaml" ./pubspec.yaml
+
+          if [[ -f "$BACKUP_DIR/pubspec.lock" ]]; then
+            cp "$BACKUP_DIR/pubspec.lock" ./pubspec.lock
+          fi
+
+          if [[ -d "$BACKUP_DIR/test" ]]; then
+            cp -a "$BACKUP_DIR/test" ./test
+          fi
+
+          if [[ -f "$BACKUP_DIR/analysis_options.yaml" ]]; then
+            cp \
+              "$BACKUP_DIR/analysis_options.yaml" \
+              ./analysis_options.yaml
+          fi
+
+          echo "Android project recreated successfully."
+
+      # ----------------------------------------------------------
+      # 6. Зависимости
+      # ----------------------------------------------------------
 
       - name: Install Flutter dependencies
-        run: flutter pub get
-
-      - name: Force Android compileSdk 35
         shell: bash
         run: |
           set -euxo pipefail
 
-          python3 - <<'PY'
-          import json
-          import re
-          from pathlib import Path
-          from urllib.parse import unquote, urlparse
+          flutter clean
+          flutter pub get
 
-          root = Path.cwd()
+      - name: Show dependency versions
+        shell: bash
+        run: |
+          flutter pub deps --style=compact
 
-          compile_sdk = 35
-          target_sdk = 35
-          min_sdk = 24
+      # ----------------------------------------------------------
+      # 7. Диагностика Android-конфигурации
+      # ----------------------------------------------------------
 
+      - name: Show Android configuration
+        shell: bash
+        run: |
+          set -euxo pipefail
 
-          def patch_gradle(path: Path, *, app: bool) -> None:
-              original = path.read_text(encoding="utf-8")
-              updated = original
+          echo "----- android/app/build.gradle files -----"
 
-              compile_replacements = (
-                  (
-                      r"compileSdk\s*=\s*flutter\.compileSdkVersion",
-                      f"compileSdk = {compile_sdk}",
-                  ),
-                  (
-                      r"compileSdkVersion\s*=\s*flutter\.compileSdkVersion",
-                      f"compileSdkVersion = {compile_sdk}",
-                  ),
-                  (
-                      r"compileSdkVersion\s+flutter\.compileSdkVersion",
-                      f"compileSdkVersion {compile_sdk}",
-                  ),
-                  (
-                      r"compileSdk\s*=\s*\d+",
-                      f"compileSdk = {compile_sdk}",
-                  ),
-                  (
-                      r"compileSdkVersion\s*=\s*\d+",
-                      f"compileSdkVersion = {compile_sdk}",
-                  ),
-                  (
-                      r"compileSdkVersion\s+\d+",
-                      f"compileSdkVersion {compile_sdk}",
-                  ),
-              )
+          find android/app \
+            -maxdepth 1 \
+            -type f \
+            -name "build.gradle*" \
+            -print
 
-              for pattern, replacement in compile_replacements:
-                  updated = re.sub(
-                      pattern,
-                      replacement,
-                      updated,
-                  )
-
-              if app:
-                  app_replacements = (
-                      (
-                          r"targetSdk\s*=\s*flutter\.targetSdkVersion",
-                          f"targetSdk = {target_sdk}",
-                      ),
-                      (
-                          r"targetSdkVersion\s*=\s*flutter\.targetSdkVersion",
-                          f"targetSdkVersion = {target_sdk}",
-                      ),
-                      (
-                          r"targetSdkVersion\s+flutter\.targetSdkVersion",
-                          f"targetSdkVersion {target_sdk}",
-                      ),
-                      (
-                          r"minSdk\s*=\s*flutter\.minSdkVersion",
-                          f"minSdk = {min_sdk}",
-                      ),
-                      (
-                          r"minSdkVersion\s*=\s*flutter\.minSdkVersion",
-                          f"minSdkVersion = {min_sdk}",
-                      ),
-                      (
-                          r"minSdkVersion\s+flutter\.minSdkVersion",
-                          f"minSdkVersion {min_sdk}",
-                      ),
-                  )
-
-                  for pattern, replacement in app_replacements:
-                      updated = re.sub(
-                          pattern,
-                          replacement,
-                          updated,
-                      )
-
-              if updated != original:
-                  path.write_text(updated, encoding="utf-8")
-                  print(f"Patched: {path}")
-              else:
-                  print(f"No replacement required: {path}")
-
-
-          app_gradle = next(
-              (
-                  path
-                  for path in (
-                      root / "android/app/build.gradle.kts",
-                      root / "android/app/build.gradle",
-                  )
-                  if path.exists()
-              ),
-              None,
-          )
-
-          if app_gradle is None:
-              raise SystemExit(
-                  "android/app/build.gradle(.kts) was not found"
-              )
-
-          patch_gradle(app_gradle, app=True)
-
-
-          package_config = (
-              root / ".dart_tool/package_config.json"
-          )
-
-          config = json.loads(
-              package_config.read_text(encoding="utf-8")
-          )
-
-          share_plus_gradle = None
-
-          for package in config.get("packages", []):
-              if package.get("name") != "share_plus":
-                  continue
-
-              root_uri = package["rootUri"]
-              parsed = urlparse(root_uri)
-
-              if parsed.scheme == "file":
-                  package_root = Path(
-                      unquote(parsed.path)
-                  )
-              else:
-                  package_root = (
-                      package_config.parent
-                      / unquote(root_uri)
-                  ).resolve()
-
-              for filename in (
-                  "build.gradle.kts",
-                  "build.gradle",
-              ):
-                  candidate = (
-                      package_root
-                      / "android"
-                      / filename
-                  )
-
-                  if candidate.exists():
-                      share_plus_gradle = candidate
-                      break
-
-          if share_plus_gradle is None:
-              raise SystemExit(
-                  "share_plus Android Gradle file was not found"
-              )
-
-          patch_gradle(
-              share_plus_gradle,
-              app=False,
-          )
-          PY
-
-          echo "----- Application SDK settings -----"
+          echo "----- SDK configuration -----"
 
           grep -R \
             --line-number \
-            -E "compileSdk|targetSdk|minSdk" \
+            -E "compileSdk|targetSdk|minSdk|ndkVersion" \
             android/app/build.gradle* \
             || true
+
+          echo "----- Gradle wrapper -----"
+
+          cat android/gradle/wrapper/gradle-wrapper.properties
+
+          echo "----- Android settings -----"
+
+          if [[ -f android/settings.gradle.kts ]]; then
+            cat android/settings.gradle.kts
+          elif [[ -f android/settings.gradle ]]; then
+            cat android/settings.gradle
+          fi
+
+      # ----------------------------------------------------------
+      # 8. Анализ
+      #
+      # Ошибки анализа будут показаны, но не остановят сборку APK.
+      # ----------------------------------------------------------
 
       - name: Analyze Dart code
         continue-on-error: true
         run: flutter analyze
 
+      # ----------------------------------------------------------
+      # 9. Тесты
+      #
+      # Запускаются только при наличии файлов *_test.dart.
+      # ----------------------------------------------------------
+
       - name: Run tests
         continue-on-error: true
-        run: flutter test
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          if [[ -d test ]] && \
+             find test -type f -name "*_test.dart" | grep -q .; then
+            flutter test
+          else
+            echo "No Flutter tests found."
+          fi
+
+      # ----------------------------------------------------------
+      # 10. Сборка APK
+      # ----------------------------------------------------------
 
       - name: Build release APK
-        run: flutter build apk --release
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          flutter build apk \
+            --release \
+            --verbose
+
+      # ----------------------------------------------------------
+      # 11. Проверка и подготовка APK
+      # ----------------------------------------------------------
 
       - name: Prepare APK artifact
         shell: bash
         run: |
           set -euxo pipefail
 
+          APK_SOURCE="build/app/outputs/flutter-apk/app-release.apk"
+
+          if [[ ! -f "$APK_SOURCE" ]]; then
+            echo "ERROR: APK was not created."
+            echo "Available build files:"
+
+            find build \
+              -type f \
+              \( -name "*.apk" -o -name "*.aab" \) \
+              -print \
+              || true
+
+            exit 1
+          fi
+
           mkdir -p dist
 
           cp \
-            build/app/outputs/flutter-apk/app-release.apk \
+            "$APK_SOURCE" \
             dist/Dodocivi-release.apk
 
           sha256sum \
             dist/Dodocivi-release.apk \
-            | tee dist/Dodocivi-release.apk.sha256
+            > dist/Dodocivi-release.apk.sha256
+
+          ls -lh dist
+
+          cat dist/Dodocivi-release.apk.sha256
+
+      # ----------------------------------------------------------
+      # 12. Публикация APK в Artifacts
+      # ----------------------------------------------------------
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Dodocivi-APK-${{ github.run_number }}
-          path: dist/
+          path: |
+            dist/Dodocivi-release.apk
+            dist/Dodocivi-release.apk.sha256
           if-no-files-found: error
           retention-days: 30
+          compression-level: 6
