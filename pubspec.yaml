@@ -1,0 +1,22 @@
+name: sdxl_collector
+description: Mobile dataset collector for turning short ideas into detailed SDXL prompts.
+publish_to: "none"
+version: 1.1.0+2
+
+environment:
+  sdk: ">=3.10.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: 1.6.0
+  path_provider: 2.1.6
+  share_plus: 13.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: 6.0.0
+
+flutter:
+  uses-material-design: true
