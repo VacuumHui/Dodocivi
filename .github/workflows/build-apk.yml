@@ -23,20 +23,14 @@ jobs:
 
     steps:
       # ==========================================================
-      # 1. Получение файлов репозитория
+      # 1. Репозиторий
       # ==========================================================
 
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # ==========================================================
-      # 2. Java 17
-      #
-      # ВАЖНО:
-      # cache: gradle здесь отсутствует.
-      #
-      # Каталог android создаётся позже, поэтому в данный момент
-      # ещё нет build.gradle и gradle-wrapper.properties.
+      # 2. Java
       # ==========================================================
 
       - name: Set up Java 17
@@ -47,20 +41,15 @@ jobs:
 
       # ==========================================================
       # 3. Android SDK
-      #
-      # setup-android добавляет sdkmanager в PATH.
       # ==========================================================
 
-      - name: Set up Android SDK tools
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK platforms
+      - name: Install Android platform
         shell: bash
         run: |
           set -euxo pipefail
-
-          echo "ANDROID_HOME=${ANDROID_HOME:-not-set}"
-          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-not-set}"
 
           command -v sdkmanager
           sdkmanager --version
@@ -69,14 +58,11 @@ jobs:
 
           sdkmanager \
             "platform-tools" \
-            "platforms;android-35" \
             "platforms;android-36" \
             "build-tools;35.0.0"
 
       # ==========================================================
       # 4. Flutter
-      #
-      # Используется текущий стабильный Flutter.
       # ==========================================================
 
       - name: Set up Flutter stable
@@ -85,7 +71,7 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Show installed versions
+      - name: Show versions
         shell: bash
         run: |
           set -euxo pipefail
@@ -95,133 +81,122 @@ jobs:
           java -version
           sdkmanager --version
 
-          flutter doctor -v || true
-
       # ==========================================================
       # 5. Проверка исходников
       # ==========================================================
 
-      - name: Validate Flutter sources
+      - name: Validate project
         shell: bash
         run: |
           set -euxo pipefail
 
           if [[ ! -f pubspec.yaml ]]; then
-            echo "ERROR: pubspec.yaml was not found"
-            exit 1
-          fi
-
-          if [[ ! -d lib ]]; then
-            echo "ERROR: lib directory was not found"
+            echo "ERROR: pubspec.yaml not found"
             exit 1
           fi
 
           if [[ ! -f lib/main.dart ]]; then
-            echo "ERROR: lib/main.dart was not found"
+            echo "ERROR: lib/main.dart not found"
             exit 1
           fi
 
-          echo "Flutter source files found."
+          echo "Flutter project files found."
 
       # ==========================================================
-      # 6. Пересоздание Android-проекта
+      # 6. Создание Android-проекта
       #
-      # Сохраняются:
-      # - lib
-      # - test
-      # - pubspec.yaml
-      # - pubspec.lock
-      # - analysis_options.yaml
-      #
-      # Затем Android-проект создаётся текущим Flutter.
+      # Если android отсутствует в репозитории, Flutter создаст его.
+      # Существующие lib и pubspec.yaml не удаляются.
       # ==========================================================
 
-      - name: Recreate Android project
+      - name: Create Android project when missing
         shell: bash
         run: |
           set -euxo pipefail
 
-          BACKUP_DIR="$(mktemp -d)"
-
-          cp -a lib "$BACKUP_DIR/lib"
-          cp pubspec.yaml "$BACKUP_DIR/pubspec.yaml"
-
-          if [[ -f pubspec.lock ]]; then
-            cp pubspec.lock "$BACKUP_DIR/pubspec.lock"
+          if [[ ! -d android ]]; then
+            flutter create \
+              --platforms=android \
+              --org=com.vacuumhui \
+              --project-name=sdxl_collector \
+              --no-pub \
+              .
+          else
+            echo "Android directory already exists."
           fi
-
-          if [[ -d test ]]; then
-            cp -a test "$BACKUP_DIR/test"
-          fi
-
-          if [[ -f analysis_options.yaml ]]; then
-            cp \
-              analysis_options.yaml \
-              "$BACKUP_DIR/analysis_options.yaml"
-          fi
-
-          rm -rf android
-
-          flutter create \
-            --platforms=android \
-            --org=com.vacuumhui \
-            --project-name=sdxl_collector \
-            --no-pub \
-            .
-
-          rm -rf lib
-          rm -rf test
-
-          cp -a "$BACKUP_DIR/lib" ./lib
-          cp "$BACKUP_DIR/pubspec.yaml" ./pubspec.yaml
-
-          if [[ -f "$BACKUP_DIR/pubspec.lock" ]]; then
-            cp \
-              "$BACKUP_DIR/pubspec.lock" \
-              ./pubspec.lock
-          fi
-
-          if [[ -d "$BACKUP_DIR/test" ]]; then
-            cp -a "$BACKUP_DIR/test" ./test
-          fi
-
-          if [[ -f "$BACKUP_DIR/analysis_options.yaml" ]]; then
-            cp \
-              "$BACKUP_DIR/analysis_options.yaml" \
-              ./analysis_options.yaml
-          fi
-
-          echo "Android project recreated."
-
-          find android \
-            -maxdepth 3 \
-            -type f \
-            | sort \
-            | head -100
 
       # ==========================================================
-      # 7. Установка зависимостей
-      # ==========================================================
-
-      - name: Install Flutter dependencies
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          flutter clean
-          flutter pub get
-
-      - name: Show dependency versions
-        shell: bash
-        run: |
-          set -euxo pipefail
-
-          flutter pub deps --style=compact
-
-      # ==========================================================
-      # 8. Явная установка compileSdk и targetSdk
+      # 7. Основной AndroidManifest.xml
       #
-      # Применяется к build.gradle.kts или build.gradle.
+      # INTERNET обязателен для release APK.
+      # ACCESS_NETWORK_STATE используется для проверки подключения.
+      # ==========================================================
+
+      - name: Configure Android manifest
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mkdir -p android/app/src/main
+
+          cat > android/app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+              <application
+                  android:name="${applicationName}"
+                  android:label="SDXL Collector"
+                  android:icon="@mipmap/ic_launcher"
+                  android:usesCleartextTraffic="false">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true"
+                      android:launchMode="singleTop"
+                      android:taskAffinity=""
+                      android:theme="@style/LaunchTheme"
+                      android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+                      android:hardwareAccelerated="true"
+                      android:windowSoftInputMode="adjustResize">
+
+                      <meta-data
+                          android:name="io.flutter.embedding.android.NormalTheme"
+                          android:resource="@style/NormalTheme" />
+
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+
+                  </activity>
+
+                  <meta-data
+                      android:name="flutterEmbedding"
+                      android:value="2" />
+
+              </application>
+
+              <queries>
+                  <intent>
+                      <action android:name="android.intent.action.PROCESS_TEXT" />
+                      <data android:mimeType="text/plain" />
+                  </intent>
+              </queries>
+
+          </manifest>
+          EOF
+
+          echo "===== AndroidManifest.xml ====="
+          cat android/app/src/main/AndroidManifest.xml
+
+          grep -q \
+            'android.permission.INTERNET' \
+            android/app/src/main/AndroidManifest.xml
+
+      # ==========================================================
+      # 8. Android SDK версии приложения
       # ==========================================================
 
       - name: Configure Android SDK versions
@@ -245,11 +220,11 @@ jobs:
 
           if gradle_file is None:
               raise SystemExit(
-                  "android/app/build.gradle(.kts) was not found"
+                  "android/app/build.gradle or "
+                  "android/app/build.gradle.kts not found"
               )
 
           text = gradle_file.read_text(encoding="utf-8")
-          original = text
 
           replacements = [
               (
@@ -308,19 +283,23 @@ jobs:
           gradle_file.write_text(text, encoding="utf-8")
 
           print(f"Configured: {gradle_file}")
-
-          if text == original:
-              print(
-                  "No textual replacements were necessary. "
-                  "The generated configuration may already be suitable."
-              )
+          print(text)
           PY
 
       # ==========================================================
-      # 9. Исправление compileSdk Android-плагинов
-      #
-      # Необходимо на случай, если отдельный Flutter-плагин
-      # использует старое значение flutter.compileSdkVersion.
+      # 9. Flutter-зависимости
+      # ==========================================================
+
+      - name: Install Flutter dependencies
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          flutter clean
+          flutter pub get
+
+      # ==========================================================
+      # 10. compileSdk Android-плагинов
       # ==========================================================
 
       - name: Configure plugin compileSdk
@@ -334,13 +313,11 @@ jobs:
           from pathlib import Path
           from urllib.parse import unquote, urlparse
 
-          config_path = Path(
-              ".dart_tool/package_config.json"
-          )
+          config_path = Path(".dart_tool/package_config.json")
 
           if not config_path.exists():
               raise SystemExit(
-                  ".dart_tool/package_config.json was not found"
+                  ".dart_tool/package_config.json not found"
               )
 
           config = json.loads(
@@ -358,13 +335,10 @@ jobs:
               parsed = urlparse(root_uri)
 
               if parsed.scheme == "file":
-                  package_root = Path(
-                      unquote(parsed.path)
-                  )
+                  package_root = Path(unquote(parsed.path))
               else:
                   package_root = (
-                      config_path.parent
-                      / unquote(root_uri)
+                      config_path.parent / unquote(root_uri)
                   ).resolve()
 
               android_dir = package_root / "android"
@@ -433,56 +407,43 @@ jobs:
                       patched += 1
 
                       print(
-                          f"Patched plugin "
+                          f"Patched "
                           f"{package.get('name')}: "
                           f"{gradle_file}"
                       )
 
-          print(f"Patched plugin files: {patched}")
+          print(f"Patched plugin Gradle files: {patched}")
           PY
 
       # ==========================================================
-      # 10. Диагностика Android
+      # 11. Проверка INTERNET-разрешения
       # ==========================================================
 
-      - name: Show Android configuration
+      - name: Verify network permission
         shell: bash
         run: |
           set -euxo pipefail
 
-          echo "===== Application Gradle file ====="
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
 
-          if [[ -f android/app/build.gradle.kts ]]; then
-            cat android/app/build.gradle.kts
-          elif [[ -f android/app/build.gradle ]]; then
-            cat android/app/build.gradle
+          if ! grep -q \
+            'android.permission.INTERNET' \
+            "$MANIFEST"; then
+            echo "ERROR: INTERNET permission is missing"
+            exit 1
           fi
 
-          echo "===== Effective SDK lines ====="
-
-          grep -R \
-            --line-number \
-            -E "compileSdk|targetSdk|minSdk|ndkVersion" \
-            android/app/build.gradle* \
-            || true
-
-          echo "===== Gradle wrapper ====="
-
-          cat \
-            android/gradle/wrapper/gradle-wrapper.properties
-
-          echo "===== Android settings ====="
-
-          if [[ -f android/settings.gradle.kts ]]; then
-            cat android/settings.gradle.kts
-          elif [[ -f android/settings.gradle ]]; then
-            cat android/settings.gradle
+          if ! grep -q \
+            'android.permission.ACCESS_NETWORK_STATE' \
+            "$MANIFEST"; then
+            echo "ERROR: ACCESS_NETWORK_STATE is missing"
+            exit 1
           fi
+
+          echo "Android network permissions are present."
 
       # ==========================================================
-      # 11. Анализ
-      #
-      # Пока не блокирует APK-сборку.
+      # 12. Анализ
       # ==========================================================
 
       - name: Analyze Dart code
@@ -490,7 +451,7 @@ jobs:
         run: flutter analyze
 
       # ==========================================================
-      # 12. Тесты
+      # 13. Тесты
       # ==========================================================
 
       - name: Run tests
@@ -507,7 +468,9 @@ jobs:
           fi
 
       # ==========================================================
-      # 13. Сборка APK
+      # 14. Release APK
+      #
+      # Номер GitHub Actions используется как Android build number.
       # ==========================================================
 
       - name: Build release APK
@@ -516,10 +479,11 @@ jobs:
           set -euxo pipefail
 
           flutter build apk \
-            --release
+            --release \
+            --build-number="${GITHUB_RUN_NUMBER}"
 
       # ==========================================================
-      # 14. Подготовка результата
+      # 15. Подготовка результата
       # ==========================================================
 
       - name: Prepare APK artifact
@@ -530,7 +494,7 @@ jobs:
           APK_SOURCE="build/app/outputs/flutter-apk/app-release.apk"
 
           if [[ ! -f "$APK_SOURCE" ]]; then
-            echo "ERROR: APK was not created."
+            echo "ERROR: APK was not created"
 
             find build \
               -type f \
@@ -552,11 +516,10 @@ jobs:
             > dist/Dodocivi-release.apk.sha256
 
           ls -lh dist
-
           cat dist/Dodocivi-release.apk.sha256
 
       # ==========================================================
-      # 15. Загрузка APK в GitHub Artifacts
+      # 16. GitHub Artifact
       # ==========================================================
 
       - name: Upload APK
